@@ -1,13 +1,8 @@
 import java.util.*;
-
-class InvalidBookingException extends Exception {
-    public InvalidBookingException(String message) {
-        super(message);
-    }
-}
+import java.util.concurrent.*;
 
 class RoomInventory {
-    private Map<String, Integer> inventory;
+    private final Map<String, Integer> inventory;
 
     public RoomInventory() {
         inventory = new HashMap<>();
@@ -16,91 +11,88 @@ class RoomInventory {
         inventory.put("Suite Room", 2);
     }
 
-    public void bookRoom(String roomType) throws InvalidBookingException {
-        if (!inventory.containsKey(roomType)) {
-            throw new InvalidBookingException("Invalid room type: " + roomType);
-        }
-        int available = inventory.get(roomType);
-        if (available <= 0) {
-            throw new InvalidBookingException("No rooms available for: " + roomType);
-        }
+    public synchronized boolean bookRoom(String roomType) {
+        Integer available = inventory.get(roomType);
+        if (available == null || available <= 0) return false;
         inventory.put(roomType, available - 1);
+        return true;
     }
 
-    public void cancelRoom(String roomType) throws InvalidBookingException {
-        if (!inventory.containsKey(roomType)) {
-            throw new InvalidBookingException("Invalid room type: " + roomType);
+    public synchronized void cancelRoom(String roomType) {
+        Integer available = inventory.get(roomType);
+        if (available != null) {
+            inventory.put(roomType, available + 1);
         }
-        inventory.put(roomType, inventory.get(roomType) + 1);
     }
 
-    public int getAvailability(String roomType) throws InvalidBookingException {
-        if (!inventory.containsKey(roomType)) {
-            throw new InvalidBookingException("Invalid room type: " + roomType);
+    public synchronized int getAvailability(String roomType) {
+        return inventory.getOrDefault(roomType, 0);
+    }
+
+    public synchronized void printInventory() {
+        System.out.println("Current Inventory:");
+        for (Map.Entry<String, Integer> entry : inventory.entrySet()) {
+            System.out.println(entry.getKey() + ": " + entry.getValue());
         }
-        return inventory.get(roomType);
     }
 }
 
 class Reservation {
-    private String guestName;
-    private String roomType;
+    private final String guestName;
+    private final String roomType;
 
     public Reservation(String guestName, String roomType) {
         this.guestName = guestName;
         this.roomType = roomType;
     }
 
-    public String getGuestName() {
-        return guestName;
+    public String getGuestName() { return guestName; }
+    public String getRoomType() { return roomType; }
+}
+
+class BookingTask implements Runnable {
+    private final Reservation reservation;
+    private final RoomInventory inventory;
+
+    public BookingTask(Reservation reservation, RoomInventory inventory) {
+        this.reservation = reservation;
+        this.inventory = inventory;
     }
 
-    public String getRoomType() {
-        return roomType;
+    @Override
+    public void run() {
+        if (inventory.bookRoom(reservation.getRoomType())) {
+            System.out.println(reservation.getGuestName() + " booked " + reservation.getRoomType());
+        } else {
+            System.out.println(reservation.getGuestName() + " failed to book " + reservation.getRoomType() + " (sold out)");
+        }
     }
 }
 
-public class UseCase10BookingCancellation {
-    public static void main(String[] args) {
+public class UseCase11ConcurrentBookingSimulation {
+    public static void main(String[] args) throws InterruptedException {
         RoomInventory inventory = new RoomInventory();
-        List<Reservation> confirmedReservations = new ArrayList<>();
-        Stack<Reservation> cancellationStack = new Stack<>();
+        List<Reservation> requests = Arrays.asList(
+            new Reservation("Guest1", "Single Room"),
+            new Reservation("Guest2", "Single Room"),
+            new Reservation("Guest3", "Double Room"),
+            new Reservation("Guest4", "Suite Room"),
+            new Reservation("Guest5", "Single Room"),
+            new Reservation("Guest6", "Double Room"),
+            new Reservation("Guest7", "Suite Room")
+        );
 
-        System.out.println("===== Book My Stay App =====");
-        System.out.println("Version: 10.0\n");
+        ExecutorService executor = Executors.newFixedThreadPool(4);
 
-        String[] bookingRequests = {"Single Room", "Double Room", "Suite Room"};
-
-        for (String roomType : bookingRequests) {
-            try {
-                inventory.bookRoom(roomType);
-                Reservation r = new Reservation("Guest_" + roomType, roomType);
-                confirmedReservations.add(r);
-                cancellationStack.push(r);
-                System.out.println("Booking confirmed for " + roomType);
-            } catch (InvalidBookingException e) {
-                System.out.println("Booking failed: " + e.getMessage());
-            }
+        for (Reservation r : requests) {
+            executor.execute(new BookingTask(r, inventory));
         }
 
-        System.out.println("\nInitiating cancellation of last booking...\n");
+        executor.shutdown();
+        executor.awaitTermination(5, TimeUnit.SECONDS);
 
-        if (!cancellationStack.isEmpty()) {
-            Reservation lastBooking = cancellationStack.pop();
-            try {
-                inventory.cancelRoom(lastBooking.getRoomType());
-                confirmedReservations.remove(lastBooking);
-                System.out.println("Booking cancelled for " + lastBooking.getRoomType());
-            } catch (InvalidBookingException e) {
-                System.out.println("Cancellation failed: " + e.getMessage());
-            }
-        }
-
-        System.out.println("\nCurrent Reservations:");
-        for (Reservation r : confirmedReservations) {
-            System.out.println(r.getGuestName() + " -> " + r.getRoomType());
-        }
-
-        System.out.println("\nApplication terminated.");
+        System.out.println("\nFinal Inventory State:");
+        inventory.printInventory();
+        System.out.println("\nSimulation complete.");
     }
 }
