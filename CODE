@@ -16,13 +16,10 @@ class RoomInventory {
         inventory.put("Suite Room", 2);
     }
 
-    public int getAvailability(String roomType) throws InvalidBookingException {
-        validateRoomType(roomType);
-        return inventory.get(roomType);
-    }
-
     public void bookRoom(String roomType) throws InvalidBookingException {
-        validateRoomType(roomType);
+        if (!inventory.containsKey(roomType)) {
+            throw new InvalidBookingException("Invalid room type: " + roomType);
+        }
         int available = inventory.get(roomType);
         if (available <= 0) {
             throw new InvalidBookingException("No rooms available for: " + roomType);
@@ -30,10 +27,18 @@ class RoomInventory {
         inventory.put(roomType, available - 1);
     }
 
-    private void validateRoomType(String roomType) throws InvalidBookingException {
+    public void cancelRoom(String roomType) throws InvalidBookingException {
         if (!inventory.containsKey(roomType)) {
             throw new InvalidBookingException("Invalid room type: " + roomType);
         }
+        inventory.put(roomType, inventory.get(roomType) + 1);
+    }
+
+    public int getAvailability(String roomType) throws InvalidBookingException {
+        if (!inventory.containsKey(roomType)) {
+            throw new InvalidBookingException("Invalid room type: " + roomType);
+        }
+        return inventory.get(roomType);
     }
 }
 
@@ -55,27 +60,43 @@ class Reservation {
     }
 }
 
-public class UseCase9ErrorHandlingValidation {
+public class UseCase10BookingCancellation {
     public static void main(String[] args) {
         RoomInventory inventory = new RoomInventory();
         List<Reservation> confirmedReservations = new ArrayList<>();
+        Stack<Reservation> cancellationStack = new Stack<>();
 
         System.out.println("===== Book My Stay App =====");
-        System.out.println("Version: 9.0\n");
+        System.out.println("Version: 10.0\n");
 
-        String[] bookingRequests = {"Single Room", "Double Room", "Suite Room", "Penthouse"};
+        String[] bookingRequests = {"Single Room", "Double Room", "Suite Room"};
 
         for (String roomType : bookingRequests) {
             try {
                 inventory.bookRoom(roomType);
-                confirmedReservations.add(new Reservation("Guest_" + roomType, roomType));
+                Reservation r = new Reservation("Guest_" + roomType, roomType);
+                confirmedReservations.add(r);
+                cancellationStack.push(r);
                 System.out.println("Booking confirmed for " + roomType);
             } catch (InvalidBookingException e) {
                 System.out.println("Booking failed: " + e.getMessage());
             }
         }
 
-        System.out.println("\nConfirmed Reservations:");
+        System.out.println("\nInitiating cancellation of last booking...\n");
+
+        if (!cancellationStack.isEmpty()) {
+            Reservation lastBooking = cancellationStack.pop();
+            try {
+                inventory.cancelRoom(lastBooking.getRoomType());
+                confirmedReservations.remove(lastBooking);
+                System.out.println("Booking cancelled for " + lastBooking.getRoomType());
+            } catch (InvalidBookingException e) {
+                System.out.println("Cancellation failed: " + e.getMessage());
+            }
+        }
+
+        System.out.println("\nCurrent Reservations:");
         for (Reservation r : confirmedReservations) {
             System.out.println(r.getGuestName() + " -> " + r.getRoomType());
         }
